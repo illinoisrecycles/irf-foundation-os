@@ -62,7 +62,7 @@ export async function POST(req: Request) {
         }
 
         const metadata = session.metadata || {}
-        const paymentType = metadata.payment_type || 'other'
+        const paymentType = metadata.type || metadata.payment_type || 'other'
         const orgId = metadata.organization_id
 
         // Record payment with event ID for idempotency
@@ -82,19 +82,34 @@ export async function POST(req: Request) {
           .single()
 
         // Handle membership payments
-        if (paymentType === 'membership' && metadata.member_organization_id) {
+        if ((paymentType === 'membership' || metadata.membership_plan_id) && (metadata.member_organization_id || metadata.member_email)) {
           const planDuration = parseInt(metadata.plan_duration_months || '12')
           const newExpiresAt = new Date()
           newExpiresAt.setMonth(newExpiresAt.getMonth() + planDuration)
 
-          await supabase
-            .from('member_organizations')
-            .update({
-              membership_status: 'active',
-              expires_at: newExpiresAt.toISOString(),
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', metadata.member_organization_id)
+          if (metadata.member_organization_id) {
+            // Update existing member
+            await supabase
+              .from('member_organizations')
+              .update({
+                membership_status: 'active',
+                membership_expires_at: newExpiresAt.toISOString(),
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', metadata.member_organization_id)
+          } else if (metadata.member_email) {
+            // Create new member organization
+            await supabase
+              .from('member_organizations')
+              .insert({
+                organization_id: orgId,
+                name: metadata.member_name || metadata.member_email,
+                primary_contact_email: metadata.member_email,
+                membership_status: 'active',
+                membership_plan_id: metadata.membership_plan_id,
+                membership_expires_at: newExpiresAt.toISOString(),
+              })
+          }
 
           // Send confirmation email
           if (session.customer_email) {
@@ -120,6 +135,48 @@ export async function POST(req: Request) {
               member_id: metadata.member_organization_id,
               amount: session.amount_total,
               email: session.customer_email,
+            })
+          }
+        }
+
+        // Handle event registration payments
+        if (paymentType === 'event_registration' && metadata.event_id) {
+          // Update the pending registration to confirmed
+          await supabase
+            .from('event_registrations')
+            .update({ 
+              status: 'registered',
+              payment_status: 'paid',
+              payment_id: payment?.id,
+            })
+            .eq('stripe_session_id', session.id)
+
+          // Also try by email + event for fallback
+          if (metadata.attendee_email) {
+            await supabase
+              .from('event_registrations')
+              .update({ 
+                status: 'registered',
+                payment_status: 'paid',
+              })
+              .eq('event_id', metadata.event_id)
+              .eq('attendee_email', metadata.attendee_email)
+              .eq('status', 'pending_payment')
+          }
+
+          // Trigger automation
+          if (orgId) {
+            await triggerEvent(supabase, orgId, 'event.registration_paid', {
+              event_id: metadata.event_id,
+              attendee_email: metadata.attendee_email,
+              attendee_name: metadata.attendee_name,
+              amount_cents: session.amount_total,
+            })
+
+            await triggerWebhooks(supabase, orgId, 'event.registration.paid', {
+              event_id: metadata.event_id,
+              attendee_email: metadata.attendee_email,
+              amount: session.amount_total,
             })
           }
         }
@@ -169,7 +226,7 @@ export async function POST(req: Request) {
           })
         }
 
-        // Handle event registrations
+        // Handle legacy event payments (old format)
         if (paymentType === 'event' && metadata.event_id) {
           await supabase
             .from('event_registrations')
