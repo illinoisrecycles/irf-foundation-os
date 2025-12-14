@@ -79,11 +79,11 @@ export default function SocialPage() {
               </tr>
             </thead>
             <tbody className="divide-y">
-              {[
-                { id: '1', content: 'Excited to announce our 2024 conference dates!', platforms: ['facebook', 'twitter', 'linkedin'], status: 'published', date: '2024-03-10' },
-                { id: '2', content: 'New member spotlight coming tomorrow...', platforms: ['facebook', 'linkedin'], status: 'scheduled', date: '2024-03-15' },
-                { id: '3', content: 'Draft post about recycling tips', platforms: [], status: 'draft', date: null },
-              ].map((post) => (
+              {([
+                { id: '1', content: 'Excited to announce our 2024 conference dates!', platforms: ['facebook', 'twitter', 'linkedin'] as string[], status: 'published', date: '2024-03-10' },
+                { id: '2', content: 'New member spotlight coming tomorrow...', platforms: ['facebook', 'linkedin'] as string[], status: 'scheduled', date: '2024-03-15' },
+                { id: '3', content: 'Draft post about recycling tips', platforms: [] as string[], status: 'draft', date: null },
+              ]).map((post) => (
                 <tr key={post.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4">
                     <div className="max-w-md truncate text-gray-900">{post.content}</div>
