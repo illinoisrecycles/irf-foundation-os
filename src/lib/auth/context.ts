@@ -14,7 +14,7 @@ type RequestContext = {
  * Replaces service-role usage in user-facing APIs
  */
 export async function requireContext(req: Request): Promise<RequestContext> {
-  const cookieStore = await cookies()
+  const cookieStore = cookies()
 
   // Create authenticated Supabase client (uses RLS)
   const supabase = createServerClient(
@@ -106,7 +106,7 @@ export async function requireContext(req: Request): Promise<RequestContext> {
  * For public/anonymous endpoints (directory, published events, etc.)
  */
 export async function getPublicClient() {
-  const cookieStore = await cookies()
+  const cookieStore = cookies()
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,

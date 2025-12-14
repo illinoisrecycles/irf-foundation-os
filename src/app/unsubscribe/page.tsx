@@ -1,10 +1,11 @@
 'use client'
 
 import * as React from 'react'
+import { Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { Mail, CheckCircle, AlertCircle } from 'lucide-react'
 
-export default function UnsubscribePage() {
+function UnsubscribeContent() {
   const searchParams = useSearchParams()
   const [status, setStatus] = React.useState<'pending' | 'success' | 'error'>('pending')
   const [loading, setLoading] = React.useState(false)
@@ -110,5 +111,26 @@ export default function UnsubscribePage() {
         </p>
       </div>
     </div>
+  )
+}
+
+function LoadingFallback() {
+  return (
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full text-center">
+        <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse">
+          <Mail className="w-8 h-8 text-gray-400" />
+        </div>
+        <p className="text-gray-600">Loading...</p>
+      </div>
+    </div>
+  )
+}
+
+export default function UnsubscribePage() {
+  return (
+    <Suspense fallback={<LoadingFallback />}>
+      <UnsubscribeContent />
+    </Suspense>
   )
 }

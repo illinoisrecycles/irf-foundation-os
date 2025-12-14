@@ -11,8 +11,8 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
  * Create a Supabase client for use in Server Components
  * This module can only be imported from server-side code.
  */
-export async function createServerSupabase() {
-  const cookieStore = await cookies()
+export function createServerSupabase() {
+  const cookieStore = cookies()
 
   return createServerClient<Database>(supabaseUrl, supabaseAnonKey, {
     cookies: {
