@@ -11,9 +11,6 @@ import RealTimeDashboard from '@/components/dashboard/RealTimeDashboard'
 import NaturalLanguageQuery from '@/components/dashboard/NaturalLanguageQuery'
 
 export default function AdminDashboard() {
-  // In real app, get from session/context
-  const organizationId = 'demo-org'
-
   const quickActions = [
     { label: 'Add Member', href: '/admin/members/new', icon: Users, color: 'blue' },
     { label: 'Create Event', href: '/admin/events/new', icon: Calendar, color: 'purple' },
@@ -78,12 +75,12 @@ export default function AdminDashboard() {
 
       {/* Real-Time Stats */}
       <div className="mb-8">
-        <RealTimeDashboard organizationId={organizationId} />
+        <RealTimeDashboard />
       </div>
 
       {/* AI Query */}
       <div className="mb-8">
-        <NaturalLanguageQuery organizationId={organizationId} />
+        <NaturalLanguageQuery />
       </div>
 
       {/* Feature Highlights */}
