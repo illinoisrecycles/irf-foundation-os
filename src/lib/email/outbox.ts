@@ -1,7 +1,14 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { Resend } from 'resend'
 
-const resend = new Resend(process.env.RESEND_API_KEY)
+// Lazy-loaded Resend client
+let resendClient: Resend | null = null
+function getResend(): Resend {
+  if (!resendClient) {
+    resendClient = new Resend(process.env.RESEND_API_KEY || '')
+  }
+  return resendClient
+}
 
 type EmailJob = {
   id: string
@@ -56,7 +63,7 @@ export async function processEmailOutbox(batchSize: number = 50): Promise<{
       const fromName = org?.name || 'FoundationOS'
 
       // Send via Resend
-      const { data: result, error: sendError } = await resend.emails.send({
+      const { data: result, error: sendError } = await getResend().emails.send({
         from: `${fromName} <${fromEmail}>`,
         to: email.to_email,
         subject: email.subject,
