@@ -49,7 +49,7 @@ export default function AutomationRecipesPage() {
       })
       
       if (response.ok) {
-        setInstalled(prev => new Set([...prev, recipeId]))
+        setInstalled(prev => new Set(Array.from(prev).concat(recipeId)))
       }
     } finally {
       setInstalling(null)

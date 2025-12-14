@@ -20,7 +20,7 @@ type Stat = {
   color: string
 }
 
-export function RealTimeDashboard() {
+export default function RealTimeDashboard() {
   const [stats, setStats] = React.useState<Stat[]>([])
   const [loading, setLoading] = React.useState(true)
   const [lastUpdated, setLastUpdated] = React.useState<Date | null>(null)

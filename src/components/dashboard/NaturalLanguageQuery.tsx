@@ -15,7 +15,7 @@ type QueryResult = {
   sql?: string
 }
 
-export function NaturalLanguageQuery() {
+export default function NaturalLanguageQuery() {
   const [query, setQuery] = React.useState('')
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)

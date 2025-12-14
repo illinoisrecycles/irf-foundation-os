@@ -59,7 +59,7 @@ const FIELD_DEFINITIONS: Record<ImportType, { field: string; label: string; requ
   ],
 }
 
-export function SmartCSVImporter({ importType = 'members', onComplete }: ImporterProps) {
+export default function SmartCSVImporter({ importType = 'members', onComplete }: ImporterProps) {
   const [step, setStep] = React.useState<'upload' | 'mapping' | 'preview' | 'importing' | 'complete'>('upload')
   const [file, setFile] = React.useState<File | null>(null)
   const [headers, setHeaders] = React.useState<string[]>([])
