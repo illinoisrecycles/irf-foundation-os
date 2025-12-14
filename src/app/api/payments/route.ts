@@ -1,50 +1,79 @@
 import { NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase/admin'
+import { z } from 'zod'
+import { createAuthedServerClient } from '@/lib/supabase/server-authed'
+import { requireOrgContext } from '@/lib/auth/org-context'
+
+const QuerySchema = z.object({
+  status: z.string().optional(),
+  type: z.string().optional(),
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
+})
 
 export async function GET(req: Request) {
-  const url = new URL(req.url)
-  const orgId = url.searchParams.get('orgId') || process.env.NEXT_PUBLIC_DEFAULT_ORG_ID || ''
-  const status = url.searchParams.get('status')
-  const paymentType = url.searchParams.get('type')
-  const startDate = url.searchParams.get('startDate')
-  const endDate = url.searchParams.get('endDate')
+  try {
+    const supabase = createAuthedServerClient()
+    const ctx = await requireOrgContext(supabase, req)
 
-  if (!orgId) {
-    return NextResponse.json({ payments: [] })
+    const url = new URL(req.url)
+    const parsed = QuerySchema.safeParse(Object.fromEntries(url.searchParams.entries()))
+    if (!parsed.success) {
+      return NextResponse.json({ error: 'Invalid query params' }, { status: 400 })
+    }
+
+    const { status, type, startDate, endDate } = parsed.data
+
+    let query = supabase
+      .from('payments')
+      .select(`*, profile:profiles(id, email, first_name, last_name, display_name)`)
+      .eq('organization_id', ctx.organizationId)
+      .order('created_at', { ascending: false })
+      .limit(500)
+
+    if (status) query = query.eq('status', status)
+    if (type) query = query.eq('payment_type', type)
+    if (startDate) query = query.gte('created_at', startDate)
+    if (endDate) query = query.lte('created_at', endDate)
+
+    const { data, error } = await query
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ payments: data ?? [] })
+  } catch (err: any) {
+    if (err.status) {
+      return NextResponse.json({ error: err.message }, { status: err.status })
+    }
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
+}
 
-  const supabase = createAdminClient()
+export async function POST(req: Request) {
+  try {
+    const supabase = createAuthedServerClient()
+    const ctx = await requireOrgContext(supabase, req)
 
-  let query = supabase
-    .from('payments')
-    .select(`
-      *,
-      profile:profiles(id, email, first_name, last_name, display_name)
-    `)
-    .eq('organization_id', orgId)
-    .order('created_at', { ascending: false })
+    const body = await req.json()
+    
+    const { data, error } = await supabase
+      .from('payments')
+      .insert({
+        organization_id: ctx.organizationId,
+        profile_id: body.profile_id,
+        amount_cents: body.amount_cents,
+        currency: body.currency || 'usd',
+        payment_type: body.payment_type || 'manual',
+        status: body.status || 'pending',
+        description: body.description,
+        metadata: body.metadata,
+      })
+      .select()
+      .single()
 
-  if (status) {
-    query = query.eq('status', status)
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ payment: data })
+  } catch (err: any) {
+    if (err.status) {
+      return NextResponse.json({ error: err.message }, { status: err.status })
+    }
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
-
-  if (paymentType) {
-    query = query.eq('payment_type', paymentType)
-  }
-
-  if (startDate) {
-    query = query.gte('created_at', startDate)
-  }
-
-  if (endDate) {
-    query = query.lte('created_at', endDate)
-  }
-
-  const { data, error } = await query.limit(500)
-
-  if (error) {
-    return NextResponse.json({ payments: [], error: error.message }, { status: 500 })
-  }
-
-  return NextResponse.json({ payments: data || [] })
 }

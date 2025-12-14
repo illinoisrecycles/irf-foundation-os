@@ -1,62 +1,78 @@
 import { NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase/admin'
+import { createAuthedServerClient } from '@/lib/supabase/server-authed'
+import { requireOrgContext } from '@/lib/auth/org-context'
 
 export async function GET(req: Request) {
-  const supabase = createAdminClient()
-  const { searchParams } = new URL(req.url)
-  const applicationId = searchParams.get('application_id')
-  const reviewerId = searchParams.get('reviewer_id')
+  try {
+    const supabase = createAuthedServerClient()
+    const ctx = await requireOrgContext(supabase, req)
 
-  let query = supabase
-    .from('grant_review_assignments')
-    .select(`
-      *,
-      application:grant_applications(*),
-      reviewer:grant_reviewers(*),
-      review:grant_reviews(*)
-    `)
+    const { searchParams } = new URL(req.url)
+    const applicationId = searchParams.get('application_id')
+    const reviewerId = searchParams.get('reviewer_id')
 
-  if (applicationId) query = query.eq('grant_application_id', applicationId)
-  if (reviewerId) query = query.eq('reviewer_id', reviewerId)
+    let query = supabase
+      .from('grant_reviewer_assignments')
+      .select(`
+        *,
+        application:grant_applications(id, title, status),
+        reviewer:profiles(id, email, first_name, last_name)
+      `)
+      .eq('organization_id', ctx.organizationId)
+      .order('created_at', { ascending: false })
 
-  const { data, error } = await query.order('assigned_at', { ascending: false })
+    if (applicationId) query = query.eq('application_id', applicationId)
+    if (reviewerId) query = query.eq('reviewer_profile_id', reviewerId)
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data)
+    const { data, error } = await query
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ assignments: data || [] })
+  } catch (err: any) {
+    if (err.status) return NextResponse.json({ error: err.message }, { status: err.status })
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
 }
 
 export async function POST(req: Request) {
-  const supabase = createAdminClient()
-  const body = await req.json()
-  const { grant_application_id, reviewer_id, due_date } = body
+  try {
+    const supabase = createAuthedServerClient()
+    const ctx = await requireOrgContext(supabase, req)
 
-  if (!grant_application_id || !reviewer_id) {
-    return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
+    const body = await req.json()
+    const { application_id, reviewer_profile_id, role } = body
+
+    if (!application_id || !reviewer_profile_id) {
+      return NextResponse.json({ error: 'application_id and reviewer_profile_id required' }, { status: 400 })
+    }
+
+    // Verify application belongs to org
+    const { data: app } = await supabase
+      .from('grant_applications')
+      .select('id')
+      .eq('id', application_id)
+      .eq('organization_id', ctx.organizationId)
+      .single()
+
+    if (!app) {
+      return NextResponse.json({ error: 'Application not found' }, { status: 404 })
+    }
+
+    const { data, error } = await supabase
+      .from('grant_reviewer_assignments')
+      .insert({
+        organization_id: ctx.organizationId,
+        application_id,
+        reviewer_profile_id,
+        role: role || 'reviewer',
+        status: 'assigned',
+      })
+      .select()
+      .single()
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ assignment: data })
+  } catch (err: any) {
+    if (err.status) return NextResponse.json({ error: err.message }, { status: err.status })
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
-
-  // Check for conflicts
-  const { data: conflict } = await supabase.rpc('check_reviewer_conflicts', {
-    p_application_id: grant_application_id,
-    p_reviewer_id: reviewer_id,
-  })
-
-  const hasConflict = conflict?.[0]?.has_conflict || false
-  const conflictReason = conflict?.[0]?.reason || null
-
-  const { data, error } = await supabase
-    .from('grant_review_assignments')
-    .insert({
-      grant_application_id,
-      reviewer_id,
-      due_date,
-      has_conflict: hasConflict,
-      conflict_reason: conflictReason,
-      status: hasConflict ? 'pending' : 'pending', // Could auto-flag for review
-    })
-    .select()
-    .single()
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-
-  return NextResponse.json({ ...data, conflict_detected: hasConflict, conflict_reason: conflictReason })
 }

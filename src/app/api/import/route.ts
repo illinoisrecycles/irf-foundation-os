@@ -1,173 +1,127 @@
 import { NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase/admin'
+import { createAuthedServerClient } from '@/lib/supabase/server-authed'
+import { requireOrgContext, requireFinanceRole } from '@/lib/auth/org-context'
 
-// Column mapping suggestions based on common patterns
-const COLUMN_MAPPINGS: Record<string, string[]> = {
-  name: ['name', 'organization', 'company', 'org_name', 'company_name', 'organization_name'],
-  email: ['email', 'email_address', 'e-mail', 'contact_email', 'primary_email'],
-  phone: ['phone', 'telephone', 'phone_number', 'tel', 'mobile'],
-  address: ['address', 'street', 'street_address', 'address1', 'address_line_1'],
-  city: ['city', 'town'],
-  state: ['state', 'province', 'region', 'state_province'],
-  zip: ['zip', 'postal', 'zip_code', 'postal_code', 'zipcode'],
-  membership_type: ['type', 'membership', 'plan', 'membership_type', 'member_type'],
-  joined_date: ['joined', 'join_date', 'joined_date', 'member_since', 'start_date'],
-  expires_date: ['expires', 'expiry', 'expiration', 'expires_at', 'expiration_date', 'renewal_date'],
-  amount: ['amount', 'dues', 'fee', 'price', 'payment'],
-}
-
-function suggestMapping(header: string): string | null {
-  const normalized = header.toLowerCase().replace(/[^a-z0-9]/g, '_')
-  
-  for (const [field, patterns] of Object.entries(COLUMN_MAPPINGS)) {
-    if (patterns.some(p => normalized.includes(p) || p.includes(normalized))) {
-      return field
-    }
-  }
-  return null
-}
-
-// POST - Start import job
-export async function POST(req: Request) {
-  const supabase = createAdminClient()
-  
+export async function GET(req: Request) {
   try {
-    const formData = await req.formData()
-    const file = formData.get('file') as File
-    const orgId = formData.get('organization_id') as string
-    const importType = formData.get('import_type') as string || 'members'
+    const supabase = createAuthedServerClient()
+    const ctx = await requireOrgContext(supabase, req)
 
-    if (!file || !orgId) {
-      return NextResponse.json({ error: 'File and organization_id required' }, { status: 400 })
+    // Get import history
+    const { data, error } = await supabase
+      .from('import_jobs')
+      .select('*')
+      .eq('organization_id', ctx.organizationId)
+      .order('created_at', { ascending: false })
+      .limit(50)
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ imports: data || [] })
+  } catch (err: any) {
+    if (err.status) return NextResponse.json({ error: err.message }, { status: err.status })
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
+}
+
+export async function POST(req: Request) {
+  try {
+    const supabase = createAuthedServerClient()
+    const ctx = await requireOrgContext(supabase, req)
+    requireFinanceRole(ctx) // Imports require admin access
+
+    const body = await req.json()
+    const { import_type, data, options } = body
+
+    if (!import_type || !data) {
+      return NextResponse.json({ error: 'import_type and data required' }, { status: 400 })
     }
-
-    // Parse CSV
-    const text = await file.text()
-    const lines = text.split('\n').filter(l => l.trim())
-    const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''))
-    
-    // Generate column mapping suggestions
-    const suggestedMappings: Record<string, string | null> = {}
-    headers.forEach(header => {
-      suggestedMappings[header] = suggestMapping(header)
-    })
 
     // Create import job
-    const { data: job, error } = await supabase
+    const { data: job, error: jobErr } = await supabase
       .from('import_jobs')
       .insert({
-        organization_id: orgId,
-        import_type: importType,
-        file_name: file.name,
-        total_rows: lines.length - 1,
+        organization_id: ctx.organizationId,
+        import_type,
         status: 'pending',
-        column_mapping: suggestedMappings,
+        total_rows: Array.isArray(data) ? data.length : 0,
+        options,
+        created_by_profile_id: ctx.userId,
       })
       .select()
       .single()
 
-    if (error) throw error
+    if (jobErr) return NextResponse.json({ error: jobErr.message }, { status: 500 })
 
-    return NextResponse.json({
-      job_id: job.id,
-      headers,
-      suggested_mappings: suggestedMappings,
-      total_rows: lines.length - 1,
-      preview: lines.slice(1, 6).map(line => {
-        const values = line.split(',').map(v => v.trim().replace(/^"|"$/g, ''))
-        return Object.fromEntries(headers.map((h, i) => [h, values[i] || '']))
-      }),
-    })
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 })
-  }
-}
+    // Process import based on type
+    let processed = 0
+    let errors: string[] = []
 
-// PUT - Execute import with confirmed mappings
-export async function PUT(req: Request) {
-  const supabase = createAdminClient()
-  const body = await req.json()
-  const { job_id, column_mapping, data } = body
-
-  if (!job_id || !column_mapping || !data) {
-    return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
-  }
-
-  try {
-    // Update job status
-    await supabase
-      .from('import_jobs')
-      .update({ status: 'processing', column_mapping, started_at: new Date().toISOString() })
-      .eq('id', job_id)
-
-    let successCount = 0
-    let errorCount = 0
-    const errors: any[] = []
-
-    // Process each row
-    for (let i = 0; i < data.length; i++) {
-      const row = data[i]
-      
-      try {
-        // Map columns to fields
-        const mapped: Record<string, any> = {}
-        for (const [sourceCol, targetField] of Object.entries(column_mapping)) {
-          if (targetField && row[sourceCol] !== undefined) {
-            mapped[targetField as string] = row[sourceCol]
+    try {
+      switch (import_type) {
+        case 'members':
+          for (const row of data) {
+            const { error } = await supabase.from('members').insert({
+              organization_id: ctx.organizationId,
+              email: row.email,
+              first_name: row.first_name,
+              last_name: row.last_name,
+              company: row.company,
+              title: row.title,
+              member_type: row.member_type || 'individual',
+              status: row.status || 'active',
+            })
+            if (error) errors.push(`Row ${processed + 1}: ${error.message}`)
+            else processed++
           }
-        }
+          break
 
-        // Get organization_id from job
-        const { data: job } = await supabase
-          .from('import_jobs')
-          .select('organization_id')
-          .eq('id', job_id)
-          .single()
+        case 'transactions':
+          for (const row of data) {
+            const { error } = await supabase.from('bank_transactions').insert({
+              organization_id: ctx.organizationId,
+              date: row.date,
+              amount_cents: Math.round(parseFloat(row.amount) * 100),
+              name: row.description || row.name,
+              merchant_name: row.merchant || row.payee,
+              status: 'pending',
+            })
+            if (error) errors.push(`Row ${processed + 1}: ${error.message}`)
+            else processed++
+          }
+          break
 
-        // Insert member
-        const { error: insertError } = await supabase
-          .from('member_organizations')
-          .insert({
-            organization_id: job.organization_id,
-            name: mapped.name || 'Unknown',
-            primary_email: mapped.email,
-            phone: mapped.phone,
-            billing_address: mapped.address,
-            billing_city: mapped.city,
-            billing_state: mapped.state,
-            billing_zip: mapped.zip,
-            membership_status: 'active',
-            joined_at: mapped.joined_date ? new Date(mapped.joined_date).toISOString() : new Date().toISOString(),
-            expires_at: mapped.expires_date ? new Date(mapped.expires_date).toISOString() : null,
-          })
-
-        if (insertError) throw insertError
-        successCount++
-      } catch (err: any) {
-        errorCount++
-        errors.push({ row: i + 1, error: err.message })
+        default:
+          return NextResponse.json({ error: `Unknown import type: ${import_type}` }, { status: 400 })
       }
 
-      // Update progress
+      // Update job status
       await supabase
         .from('import_jobs')
-        .update({ processed_rows: i + 1, success_count: successCount, error_count: errorCount })
-        .eq('id', job_id)
-    }
+        .update({
+          status: errors.length > 0 ? 'completed_with_errors' : 'completed',
+          processed_rows: processed,
+          error_rows: errors.length,
+          errors: errors.length > 0 ? errors : null,
+          completed_at: new Date().toISOString(),
+        })
+        .eq('id', job.id)
 
-    // Complete job
-    await supabase
-      .from('import_jobs')
-      .update({
-        status: errorCount > 0 ? 'completed_with_errors' : 'completed',
-        completed_at: new Date().toISOString(),
-        errors,
+      return NextResponse.json({ 
+        job_id: job.id, 
+        processed, 
+        errors: errors.length,
+        error_details: errors.slice(0, 10) // First 10 errors
       })
-      .eq('id', job_id)
+    } catch (err: any) {
+      await supabase
+        .from('import_jobs')
+        .update({ status: 'failed', errors: [err.message] })
+        .eq('id', job.id)
 
-    return NextResponse.json({ success_count: successCount, error_count: errorCount, errors })
+      return NextResponse.json({ error: err.message }, { status: 500 })
+    }
   } catch (err: any) {
-    await supabase.from('import_jobs').update({ status: 'failed' }).eq('id', job_id)
-    return NextResponse.json({ error: err.message }, { status: 500 })
+    if (err.status) return NextResponse.json({ error: err.message }, { status: err.status })
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

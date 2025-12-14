@@ -1,65 +1,58 @@
 import { NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase/admin'
+import { createAuthedServerClient } from '@/lib/supabase/server-authed'
+import { requireOrgContext } from '@/lib/auth/org-context'
 
 export async function GET(req: Request) {
-  const url = new URL(req.url)
-  const memberOrgId = url.searchParams.get('memberOrgId')
-  const search = url.searchParams.get('search')
+  try {
+    const supabase = createAuthedServerClient()
+    const ctx = await requireOrgContext(supabase, req)
 
-  if (!memberOrgId) return NextResponse.json({ contacts: [] })
+    const { searchParams } = new URL(req.url)
+    const memberId = searchParams.get('member_id')
+    const contactType = searchParams.get('type')
 
-  const supabase = createAdminClient()
+    let query = supabase
+      .from('member_contacts')
+      .select('*')
+      .eq('organization_id', ctx.organizationId)
+      .order('is_primary', { ascending: false })
 
-  let query = supabase
-    .from('member_contacts')
-    .select('*')
-    .eq('member_organization_id', memberOrgId)
-    .order('is_primary_contact', { ascending: false })
-    .order('last_name')
+    if (memberId) query = query.eq('member_id', memberId)
+    if (contactType) query = query.eq('contact_type', contactType)
 
-  if (search) {
-    query = query.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,email.ilike.%${search}%`)
+    const { data, error } = await query
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ contacts: data || [] })
+  } catch (err: any) {
+    if (err.status) return NextResponse.json({ error: err.message }, { status: err.status })
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
-
-  const { data, error } = await query
-
-  if (error) {
-    return NextResponse.json({ contacts: [], error: error.message }, { status: 500 })
-  }
-
-  return NextResponse.json({ contacts: data || [] })
 }
 
 export async function POST(req: Request) {
-  const body = await req.json()
-  const supabase = createAdminClient()
+  try {
+    const supabase = createAuthedServerClient()
+    const ctx = await requireOrgContext(supabase, req)
 
-  const { data, error } = await supabase
-    .from('member_contacts')
-    .insert({
-      member_organization_id: body.member_organization_id,
-      profile_id: body.profile_id || null,
-      first_name: body.first_name,
-      last_name: body.last_name,
-      email: body.email,
-      phone: body.phone || null,
-      mobile_phone: body.mobile_phone || null,
-      job_title: body.job_title || null,
-      department: body.department || null,
-      is_primary_contact: body.is_primary_contact ?? false,
-      is_billing_contact: body.is_billing_contact ?? false,
-      can_manage_membership: body.can_manage_membership ?? false,
-      can_register_events: body.can_register_events ?? true,
-      can_view_directory: body.can_view_directory ?? true,
-      email_opt_in: body.email_opt_in ?? true,
-      newsletter_opt_in: body.newsletter_opt_in ?? true,
-    })
-    .select('*')
-    .single()
+    const body = await req.json()
+    
+    const { data, error } = await supabase
+      .from('member_contacts')
+      .insert({
+        organization_id: ctx.organizationId,
+        member_id: body.member_id,
+        contact_type: body.contact_type,
+        value: body.value,
+        label: body.label,
+        is_primary: body.is_primary || false,
+      })
+      .select()
+      .single()
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ contact: data })
+  } catch (err: any) {
+    if (err.status) return NextResponse.json({ error: err.message }, { status: err.status })
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
-
-  return NextResponse.json({ contact: data })
 }

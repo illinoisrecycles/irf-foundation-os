@@ -1,71 +1,100 @@
 import { NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase/admin'
+import { createAuthedServerClient } from '@/lib/supabase/server-authed'
+import { requireOrgContext } from '@/lib/auth/org-context'
 
 export async function GET(req: Request) {
-  const { searchParams } = new URL(req.url)
-  const orgId = searchParams.get('organization_id')
+  try {
+    const supabase = createAuthedServerClient()
+    const ctx = await requireOrgContext(supabase, req)
 
-  if (!orgId) return NextResponse.json({ error: 'organization_id required' }, { status: 400 })
+    const now = new Date()
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+    const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+    const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0)
 
-  const supabase = createAdminClient()
-  const now = new Date()
-  const startOfYear = new Date(now.getFullYear(), 0, 1).toISOString()
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
-  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString()
-  const oneWeekFromNow = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+    // Total members
+    const { count: totalMembers } = await supabase
+      .from('members')
+      .select('*', { count: 'exact', head: true })
+      .eq('organization_id', ctx.organizationId)
+      .eq('status', 'active')
 
-  const [
-    { count: totalMembers },
-    { count: newMembersToday },
-    { count: expiringThisWeek },
-    { data: payments },
-    { count: eventsThisMonth },
-    { count: upcomingEvents },
-    { data: engagementScores },
-    { count: atRiskMembers },
-    { count: pendingTasks },
-    { count: automationsToday },
-  ] = await Promise.all([
-    supabase.from('member_organizations').select('*', { count: 'exact', head: true })
-      .eq('organization_id', orgId).eq('membership_status', 'active'),
-    supabase.from('member_organizations').select('*', { count: 'exact', head: true })
-      .eq('organization_id', orgId).gte('joined_at', startOfDay),
-    supabase.from('member_organizations').select('*', { count: 'exact', head: true })
-      .eq('organization_id', orgId).lte('expires_at', oneWeekFromNow).gte('expires_at', now.toISOString()),
-    supabase.from('payments').select('amount_cents, created_at')
-      .eq('organization_id', orgId).eq('status', 'succeeded').gte('created_at', startOfYear),
-    supabase.from('events').select('*', { count: 'exact', head: true })
-      .eq('organization_id', orgId).gte('start_date', startOfMonth),
-    supabase.from('events').select('*', { count: 'exact', head: true })
-      .eq('organization_id', orgId).gte('start_date', now.toISOString()),
-    supabase.from('member_engagement_scores').select('score').eq('organization_id', orgId),
-    supabase.from('member_engagement_scores').select('*', { count: 'exact', head: true })
-      .eq('organization_id', orgId).lt('score', 40),
-    supabase.from('work_items').select('*', { count: 'exact', head: true })
-      .eq('organization_id', orgId).eq('status', 'open'),
-    supabase.from('automation_runs').select('*', { count: 'exact', head: true })
-      .eq('organization_id', orgId).gte('started_at', startOfDay),
-  ])
+    // New members this month
+    const { count: newMembersThisMonth } = await supabase
+      .from('members')
+      .select('*', { count: 'exact', head: true })
+      .eq('organization_id', ctx.organizationId)
+      .gte('created_at', startOfMonth.toISOString())
 
-  const totalRevenue = payments?.reduce((sum, p) => sum + p.amount_cents, 0) || 0
-  const revenueToday = payments?.filter(p => p.created_at >= startOfDay).reduce((sum, p) => sum + p.amount_cents, 0) || 0
-  const avgEngagement = engagementScores?.length
-    ? Math.round(engagementScores.reduce((sum, s) => sum + s.score, 0) / engagementScores.length) : 0
+    // New members last month
+    const { count: newMembersLastMonth } = await supabase
+      .from('members')
+      .select('*', { count: 'exact', head: true })
+      .eq('organization_id', ctx.organizationId)
+      .gte('created_at', startOfLastMonth.toISOString())
+      .lt('created_at', startOfMonth.toISOString())
 
-  return NextResponse.json({
-    totalMembers: totalMembers || 0,
-    membersTrend: 5, // Placeholder
-    newMembersToday: newMembersToday || 0,
-    expiringThisWeek: expiringThisWeek || 0,
-    totalRevenue,
-    revenueTrend: 12, // Placeholder
-    revenueToday,
-    eventsThisMonth: eventsThisMonth || 0,
-    upcomingEvents: upcomingEvents || 0,
-    avgEngagement,
-    engagementTrend: 3, // Placeholder
-    atRiskMembers: atRiskMembers || 0,
-    pendingTasks: pendingTasks || 0,
-    automationsTriggered: automationsToday || 0,
-  })
+    // Revenue this month
+    const { data: revenueThisMonth } = await supabase
+      .from('payments')
+      .select('amount_cents')
+      .eq('organization_id', ctx.organizationId)
+      .eq('status', 'succeeded')
+      .gte('created_at', startOfMonth.toISOString())
+
+    const monthlyRevenue = revenueThisMonth?.reduce((sum, p) => sum + (p.amount_cents || 0), 0) || 0
+
+    // Revenue last month
+    const { data: revenueLastMonth } = await supabase
+      .from('payments')
+      .select('amount_cents')
+      .eq('organization_id', ctx.organizationId)
+      .eq('status', 'succeeded')
+      .gte('created_at', startOfLastMonth.toISOString())
+      .lt('created_at', startOfMonth.toISOString())
+
+    const lastMonthRevenue = revenueLastMonth?.reduce((sum, p) => sum + (p.amount_cents || 0), 0) || 0
+
+    // Upcoming events
+    const { count: upcomingEvents } = await supabase
+      .from('events')
+      .select('*', { count: 'exact', head: true })
+      .eq('organization_id', ctx.organizationId)
+      .gte('start_date', now.toISOString())
+      .eq('status', 'published')
+
+    // Engagement rate (members with activity in last 30 days / total members)
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+    const { count: activeMembers } = await supabase
+      .from('members')
+      .select('*', { count: 'exact', head: true })
+      .eq('organization_id', ctx.organizationId)
+      .eq('status', 'active')
+      .gte('last_activity_at', thirtyDaysAgo.toISOString())
+
+    const engagementRate = totalMembers ? Math.round(((activeMembers || 0) / totalMembers) * 100) : 0
+
+    // Calculate growth percentages
+    const memberGrowth = newMembersLastMonth 
+      ? Math.round(((newMembersThisMonth || 0) - newMembersLastMonth) / newMembersLastMonth * 100)
+      : 0
+
+    const revenueGrowth = lastMonthRevenue
+      ? Math.round((monthlyRevenue - lastMonthRevenue) / lastMonthRevenue * 100)
+      : 0
+
+    return NextResponse.json({
+      totalMembers: totalMembers || 0,
+      memberGrowth,
+      monthlyRevenue,
+      revenueGrowth,
+      upcomingEvents: upcomingEvents || 0,
+      engagementRate,
+      engagementChange: 0, // TODO: Calculate vs last month
+    })
+  } catch (err: any) {
+    if (err.status) return NextResponse.json({ error: err.message }, { status: err.status })
+    console.error('Dashboard stats error:', err)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
 }

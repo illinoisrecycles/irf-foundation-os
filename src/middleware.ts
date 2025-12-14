@@ -30,18 +30,38 @@ export async function middleware(request: NextRequest) {
   // Refresh session if expired
   await supabase.auth.getUser()
 
+  // Inject org context for API/admin/portal routes
+  const pathname = request.nextUrl.pathname
+  const shouldAttachOrg =
+    pathname.startsWith('/api') ||
+    pathname.startsWith('/admin') ||
+    pathname.startsWith('/portal')
+
+  if (shouldAttachOrg) {
+    const activeOrgId = request.cookies.get('active_org_id')?.value
+    if (activeOrgId) {
+      const requestHeaders = new Headers(request.headers)
+      if (!requestHeaders.get('x-org-id')) {
+        requestHeaders.set('x-org-id', activeOrgId)
+      }
+      
+      // Create response with modified headers
+      const next = NextResponse.next({ request: { headers: requestHeaders } })
+      
+      // Copy cookies from session refresh
+      for (const c of response.cookies.getAll()) {
+        next.cookies.set(c)
+      }
+      
+      return next
+    }
+  }
+
   return response
 }
 
 export const config = {
   matcher: [
-    /*
-     * Match all request paths except:
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     * - public folder files (svg, png, jpg, etc.)
-     */
     '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }

@@ -2,77 +2,98 @@
 
 import * as React from 'react'
 import { 
-  Users, DollarSign, Calendar, TrendingUp, TrendingDown,
-  Activity, AlertTriangle, CheckCircle, Clock, Zap,
-  RefreshCw, ArrowUpRight, ArrowDownRight
+  Users, DollarSign, Calendar, TrendingUp, 
+  ArrowUpRight, ArrowDownRight, RefreshCw 
 } from 'lucide-react'
 
-type DashboardStats = {
-  totalMembers: number
-  membersTrend: number
-  newMembersToday: number
-  expiringThisWeek: number
-  totalRevenue: number
-  revenueTrend: number
-  revenueToday: number
-  eventsThisMonth: number
-  upcomingEvents: number
-  avgEngagement: number
-  engagementTrend: number
-  atRiskMembers: number
-  pendingTasks: number
-  automationsTriggered: number
+// ============================================================================
+// REAL-TIME DASHBOARD
+// Live-updating stats and metrics
+// ============================================================================
+
+type Stat = {
+  label: string
+  value: string | number
+  change?: number
+  changeLabel?: string
+  icon: React.ReactNode
+  color: string
 }
 
-type Props = {
-  organizationId: string
-  initialStats?: DashboardStats
-}
+export function RealTimeDashboard() {
+  const [stats, setStats] = React.useState<Stat[]>([])
+  const [loading, setLoading] = React.useState(true)
+  const [lastUpdated, setLastUpdated] = React.useState<Date | null>(null)
 
-export default function RealTimeDashboard({ organizationId, initialStats }: Props) {
-  const [stats, setStats] = React.useState<DashboardStats | null>(initialStats || null)
-  const [loading, setLoading] = React.useState(!initialStats)
-  const [lastUpdated, setLastUpdated] = React.useState<Date>(new Date())
-
-  const fetchStats = async () => {
+  const fetchStats = React.useCallback(async () => {
     try {
-      const response = await fetch(`/api/dashboard/stats?organization_id=${organizationId}`)
-      const data = await response.json()
-      setStats(data)
+      const res = await fetch('/api/dashboard/stats')
+      if (!res.ok) throw new Error('Failed to fetch stats')
+      
+      const data = await res.json()
+      
+      setStats([
+        {
+          label: 'Total Members',
+          value: data.totalMembers?.toLocaleString() || '0',
+          change: data.memberGrowth,
+          changeLabel: 'vs last month',
+          icon: <Users className="w-6 h-6" />,
+          color: 'blue',
+        },
+        {
+          label: 'Monthly Revenue',
+          value: `$${((data.monthlyRevenue || 0) / 100).toLocaleString()}`,
+          change: data.revenueGrowth,
+          changeLabel: 'vs last month',
+          icon: <DollarSign className="w-6 h-6" />,
+          color: 'green',
+        },
+        {
+          label: 'Upcoming Events',
+          value: data.upcomingEvents || '0',
+          icon: <Calendar className="w-6 h-6" />,
+          color: 'purple',
+        },
+        {
+          label: 'Engagement Rate',
+          value: `${data.engagementRate || 0}%`,
+          change: data.engagementChange,
+          changeLabel: 'vs last month',
+          icon: <TrendingUp className="w-6 h-6" />,
+          color: 'orange',
+        },
+      ])
       setLastUpdated(new Date())
     } catch (err) {
-      console.error('Failed to fetch stats:', err)
+      console.error('Dashboard stats error:', err)
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
   React.useEffect(() => {
-    if (!initialStats) fetchStats()
-    
-    // Poll every 30 seconds for real-time feel
-    const interval = setInterval(fetchStats, 30000)
+    fetchStats()
+    // Refresh every 60 seconds
+    const interval = setInterval(fetchStats, 60000)
     return () => clearInterval(interval)
-  }, [organizationId])
+  }, [fetchStats])
 
-  const formatCurrency = (cents: number) => 
-    new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100)
-
-  const formatTrend = (value: number) => {
-    const isPositive = value >= 0
-    return (
-      <span className={`flex items-center gap-1 text-sm ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
-        {isPositive ? <ArrowUpRight className="w-4 h-4" /> : <ArrowDownRight className="w-4 h-4" />}
-        {Math.abs(value)}%
-      </span>
-    )
+  const colorClasses: Record<string, { bg: string; text: string; icon: string }> = {
+    blue: { bg: 'bg-blue-50', text: 'text-blue-600', icon: 'text-blue-500' },
+    green: { bg: 'bg-green-50', text: 'text-green-600', icon: 'text-green-500' },
+    purple: { bg: 'bg-purple-50', text: 'text-purple-600', icon: 'text-purple-500' },
+    orange: { bg: 'bg-orange-50', text: 'text-orange-600', icon: 'text-orange-500' },
   }
 
-  if (loading || !stats) {
+  if (loading) {
     return (
-      <div className="grid md:grid-cols-4 gap-6 animate-pulse">
-        {[...Array(8)].map((_, i) => (
-          <div key={i} className="bg-white rounded-xl border p-6 h-32" />
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {[1, 2, 3, 4].map((i) => (
+          <div key={i} className="bg-white rounded-xl shadow-sm border p-6 animate-pulse">
+            <div className="h-4 bg-gray-200 rounded w-24 mb-4" />
+            <div className="h-8 bg-gray-200 rounded w-32" />
+          </div>
         ))}
       </div>
     )
@@ -80,121 +101,60 @@ export default function RealTimeDashboard({ organizationId, initialStats }: Prop
 
   return (
     <div>
-      {/* Last Updated */}
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-lg font-semibold text-gray-900">Dashboard Overview</h2>
-        <div className="flex items-center gap-2 text-sm text-gray-500">
-          <Clock className="w-4 h-4" />
-          Updated {lastUpdated.toLocaleTimeString()}
-          <button onClick={fetchStats} className="p-1 hover:bg-gray-100 rounded">
-            <RefreshCw className="w-4 h-4" />
-          </button>
-        </div>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-lg font-semibold text-gray-900">Overview</h2>
+        <button
+          onClick={fetchStats}
+          className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700"
+        >
+          <RefreshCw className="w-4 h-4" />
+          <span>Refresh</span>
+        </button>
       </div>
 
-      {/* Main Stats Grid */}
-      <div className="grid md:grid-cols-4 gap-6 mb-8">
-        {/* Members */}
-        <div className="bg-white rounded-xl border p-6">
-          <div className="flex items-center justify-between mb-4">
-            <div className="p-2 bg-blue-100 rounded-lg">
-              <Users className="w-5 h-5 text-blue-600" />
-            </div>
-            {formatTrend(stats.membersTrend)}
-          </div>
-          <p className="text-3xl font-bold text-gray-900">{stats.totalMembers.toLocaleString()}</p>
-          <p className="text-gray-500 text-sm">Total Members</p>
-          <div className="mt-2 flex items-center gap-4 text-xs">
-            <span className="text-green-600">+{stats.newMembersToday} today</span>
-            <span className="text-orange-600">{stats.expiringThisWeek} expiring</span>
-          </div>
-        </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {stats.map((stat) => {
+          const colors = colorClasses[stat.color] || colorClasses.blue
 
-        {/* Revenue */}
-        <div className="bg-white rounded-xl border p-6">
-          <div className="flex items-center justify-between mb-4">
-            <div className="p-2 bg-green-100 rounded-lg">
-              <DollarSign className="w-5 h-5 text-green-600" />
+          return (
+            <div key={stat.label} className="bg-white rounded-xl shadow-sm border p-6">
+              <div className="flex items-center justify-between mb-4">
+                <span className="text-sm font-medium text-gray-500">{stat.label}</span>
+                <div className={`p-2 rounded-lg ${colors.bg}`}>
+                  <span className={colors.icon}>{stat.icon}</span>
+                </div>
+              </div>
+              
+              <div className="flex items-end justify-between">
+                <span className="text-2xl font-bold text-gray-900">{stat.value}</span>
+                
+                {stat.change !== undefined && (
+                  <div className={`flex items-center text-sm ${
+                    stat.change >= 0 ? 'text-green-600' : 'text-red-600'
+                  }`}>
+                    {stat.change >= 0 ? (
+                      <ArrowUpRight className="w-4 h-4" />
+                    ) : (
+                      <ArrowDownRight className="w-4 h-4" />
+                    )}
+                    <span>{Math.abs(stat.change)}%</span>
+                  </div>
+                )}
+              </div>
+              
+              {stat.changeLabel && (
+                <p className="text-xs text-gray-400 mt-1">{stat.changeLabel}</p>
+              )}
             </div>
-            {formatTrend(stats.revenueTrend)}
-          </div>
-          <p className="text-3xl font-bold text-gray-900">{formatCurrency(stats.totalRevenue)}</p>
-          <p className="text-gray-500 text-sm">Year-to-Date Revenue</p>
-          <div className="mt-2 text-xs text-green-600">
-            +{formatCurrency(stats.revenueToday)} today
-          </div>
-        </div>
-
-        {/* Events */}
-        <div className="bg-white rounded-xl border p-6">
-          <div className="flex items-center justify-between mb-4">
-            <div className="p-2 bg-purple-100 rounded-lg">
-              <Calendar className="w-5 h-5 text-purple-600" />
-            </div>
-          </div>
-          <p className="text-3xl font-bold text-gray-900">{stats.eventsThisMonth}</p>
-          <p className="text-gray-500 text-sm">Events This Month</p>
-          <div className="mt-2 text-xs text-purple-600">
-            {stats.upcomingEvents} upcoming
-          </div>
-        </div>
-
-        {/* Engagement */}
-        <div className="bg-white rounded-xl border p-6">
-          <div className="flex items-center justify-between mb-4">
-            <div className="p-2 bg-indigo-100 rounded-lg">
-              <Activity className="w-5 h-5 text-indigo-600" />
-            </div>
-            {formatTrend(stats.engagementTrend)}
-          </div>
-          <p className="text-3xl font-bold text-gray-900">{stats.avgEngagement}</p>
-          <p className="text-gray-500 text-sm">Avg Engagement Score</p>
-        </div>
+          )
+        })}
       </div>
 
-      {/* Action Items Row */}
-      <div className="grid md:grid-cols-3 gap-6">
-        {/* At-Risk Members */}
-        <div className={`rounded-xl border p-6 ${stats.atRiskMembers > 0 ? 'bg-red-50 border-red-200' : 'bg-white'}`}>
-          <div className="flex items-center gap-3 mb-2">
-            <AlertTriangle className={`w-5 h-5 ${stats.atRiskMembers > 0 ? 'text-red-600' : 'text-gray-400'}`} />
-            <span className="font-medium text-gray-900">At-Risk Members</span>
-          </div>
-          <p className="text-2xl font-bold text-gray-900">{stats.atRiskMembers}</p>
-          <p className="text-sm text-gray-500">Members with low engagement</p>
-          {stats.atRiskMembers > 0 && (
-            <a href="/admin/members?filter=at-risk" className="mt-3 text-sm text-red-600 hover:underline block">
-              View and take action →
-            </a>
-          )}
-        </div>
-
-        {/* Pending Tasks */}
-        <div className="bg-white rounded-xl border p-6">
-          <div className="flex items-center gap-3 mb-2">
-            <CheckCircle className="w-5 h-5 text-orange-500" />
-            <span className="font-medium text-gray-900">Pending Tasks</span>
-          </div>
-          <p className="text-2xl font-bold text-gray-900">{stats.pendingTasks}</p>
-          <p className="text-sm text-gray-500">Tasks in your inbox</p>
-          <a href="/admin/inbox" className="mt-3 text-sm text-blue-600 hover:underline block">
-            Go to inbox →
-          </a>
-        </div>
-
-        {/* Automations */}
-        <div className="bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl p-6 text-white">
-          <div className="flex items-center gap-3 mb-2">
-            <Zap className="w-5 h-5" />
-            <span className="font-medium">Automations Today</span>
-          </div>
-          <p className="text-2xl font-bold">{stats.automationsTriggered}</p>
-          <p className="text-sm text-indigo-200">Tasks automated for you</p>
-          <a href="/admin/automation" className="mt-3 text-sm text-white hover:underline block opacity-80">
-            Manage automations →
-          </a>
-        </div>
-      </div>
+      {lastUpdated && (
+        <p className="text-xs text-gray-400 mt-4 text-right">
+          Last updated: {lastUpdated.toLocaleTimeString()}
+        </p>
+      )}
     </div>
   )
 }

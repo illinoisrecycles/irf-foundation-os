@@ -1,103 +1,95 @@
 import { NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase/admin'
-import crypto from 'crypto'
+import * as crypto from 'crypto'
+import { createAuthedServerClient } from '@/lib/supabase/server-authed'
+import { requireOrgContext, requireFinanceRole } from '@/lib/auth/org-context'
 
-// GET - List webhooks
 export async function GET(req: Request) {
-  const supabase = createAdminClient()
-  const { searchParams } = new URL(req.url)
-  const orgId = searchParams.get('organization_id')
+  try {
+    const supabase = createAuthedServerClient()
+    const ctx = await requireOrgContext(supabase, req)
 
-  if (!orgId) {
-    return NextResponse.json({ error: 'organization_id required' }, { status: 400 })
+    const { data, error } = await supabase
+      .from('webhooks')
+      .select('*')
+      .eq('organization_id', ctx.organizationId)
+      .order('created_at', { ascending: false })
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ webhooks: data })
+  } catch (err: any) {
+    if (err.status) {
+      return NextResponse.json({ error: err.message }, { status: err.status })
+    }
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
-
-  const { data, error } = await supabase
-    .from('webhooks')
-    .select('*')
-    .eq('organization_id', orgId)
-    .order('created_at', { ascending: false })
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
-
-  return NextResponse.json(data)
 }
 
-// POST - Create webhook
 export async function POST(req: Request) {
-  const supabase = createAdminClient()
-  const body = await req.json()
+  try {
+    const supabase = createAuthedServerClient()
+    const ctx = await requireOrgContext(supabase, req)
+    requireFinanceRole(ctx) // Webhooks require admin/finance role
 
-  const { organization_id, name, url, event_types } = body
+    const body = await req.json()
+    const { url, events, name } = body
 
-  if (!organization_id || !name || !url || !event_types?.length) {
-    return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
+    if (!url || !events?.length) {
+      return NextResponse.json(
+        { error: 'url and events required' },
+        { status: 400 }
+      )
+    }
+
+    const secret = crypto.randomBytes(32).toString('hex')
+
+    const { data, error } = await supabase
+      .from('webhooks')
+      .insert({
+        organization_id: ctx.organizationId,
+        url,
+        events,
+        name: name || 'Webhook',
+        secret,
+        is_active: true,
+      })
+      .select()
+      .single()
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ webhook: data })
+  } catch (err: any) {
+    if (err.status) {
+      return NextResponse.json({ error: err.message }, { status: err.status })
+    }
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
-
-  // Generate a secret for signature verification
-  const secret = crypto.randomBytes(32).toString('hex')
-
-  const { data, error } = await supabase
-    .from('webhooks')
-    .insert({
-      organization_id,
-      name,
-      url,
-      event_types,
-      secret,
-      is_active: true,
-    })
-    .select()
-    .single()
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
-
-  return NextResponse.json(data)
 }
 
-// DELETE - Remove webhook
 export async function DELETE(req: Request) {
-  const supabase = createAdminClient()
-  const { searchParams } = new URL(req.url)
-  const id = searchParams.get('id')
+  try {
+    const supabase = createAuthedServerClient()
+    const ctx = await requireOrgContext(supabase, req)
+    requireFinanceRole(ctx)
 
-  if (!id) {
-    return NextResponse.json({ error: 'id required' }, { status: 400 })
+    const { searchParams } = new URL(req.url)
+    const id = searchParams.get('id')
+
+    if (!id) {
+      return NextResponse.json({ error: 'id required' }, { status: 400 })
+    }
+
+    const { error } = await supabase
+      .from('webhooks')
+      .delete()
+      .eq('id', id)
+      .eq('organization_id', ctx.organizationId)
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ ok: true })
+  } catch (err: any) {
+    if (err.status) {
+      return NextResponse.json({ error: err.message }, { status: err.status })
+    }
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
-
-  const { error } = await supabase.from('webhooks').delete().eq('id', id)
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
-
-  return NextResponse.json({ success: true })
-}
-
-// PATCH - Update webhook
-export async function PATCH(req: Request) {
-  const supabase = createAdminClient()
-  const body = await req.json()
-  const { id, ...updates } = body
-
-  if (!id) {
-    return NextResponse.json({ error: 'id required' }, { status: 400 })
-  }
-
-  const { data, error } = await supabase
-    .from('webhooks')
-    .update(updates)
-    .eq('id', id)
-    .select()
-    .single()
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
-
-  return NextResponse.json(data)
 }

@@ -1,61 +1,75 @@
 'use client'
 
 import * as React from 'react'
-import { Upload, FileSpreadsheet, Check, AlertCircle, ArrowRight, Loader2 } from 'lucide-react'
+import { Upload, FileSpreadsheet, Check, AlertCircle, Loader2, X } from 'lucide-react'
 
-type ColumnMapping = Record<string, string | null>
-type PreviewRow = Record<string, string>
+// ============================================================================
+// SMART CSV IMPORTER
+// AI-assisted CSV import with column mapping
+// ============================================================================
+
+type ImportType = 'members' | 'transactions' | 'donations' | 'contacts'
+
+type ColumnMapping = {
+  sourceColumn: string
+  targetField: string
+  sampleValues: string[]
+}
 
 type ImporterProps = {
-  importType: 'members' | 'donations' | 'events'
-  organizationId: string
-  onComplete?: (result: { success: number; errors: number }) => void
+  importType?: ImportType
+  onComplete?: (result: { imported: number; errors: number }) => void
 }
 
-const TARGET_FIELDS: Record<string, { label: string; required?: boolean }[]> = {
+const FIELD_DEFINITIONS: Record<ImportType, { field: string; label: string; required?: boolean }[]> = {
   members: [
-    { label: 'name', required: true },
-    { label: 'email', required: true },
-    { label: 'phone' },
-    { label: 'address' },
-    { label: 'city' },
-    { label: 'state' },
-    { label: 'zip' },
-    { label: 'membership_type' },
-    { label: 'joined_date' },
-    { label: 'expires_date' },
+    { field: 'email', label: 'Email', required: true },
+    { field: 'first_name', label: 'First Name' },
+    { field: 'last_name', label: 'Last Name' },
+    { field: 'company', label: 'Company/Organization' },
+    { field: 'title', label: 'Job Title' },
+    { field: 'phone', label: 'Phone' },
+    { field: 'member_type', label: 'Member Type' },
+    { field: 'status', label: 'Status' },
+  ],
+  transactions: [
+    { field: 'date', label: 'Date', required: true },
+    { field: 'amount', label: 'Amount', required: true },
+    { field: 'description', label: 'Description' },
+    { field: 'merchant', label: 'Merchant/Payee' },
+    { field: 'category', label: 'Category' },
+    { field: 'reference', label: 'Reference/Check #' },
   ],
   donations: [
-    { label: 'donor_name', required: true },
-    { label: 'email', required: true },
-    { label: 'amount', required: true },
-    { label: 'date' },
-    { label: 'campaign' },
-    { label: 'notes' },
+    { field: 'email', label: 'Donor Email', required: true },
+    { field: 'amount', label: 'Amount', required: true },
+    { field: 'date', label: 'Date' },
+    { field: 'first_name', label: 'First Name' },
+    { field: 'last_name', label: 'Last Name' },
+    { field: 'fund', label: 'Fund/Campaign' },
+    { field: 'notes', label: 'Notes' },
   ],
-  events: [
-    { label: 'title', required: true },
-    { label: 'start_date', required: true },
-    { label: 'end_date' },
-    { label: 'location' },
-    { label: 'description' },
-    { label: 'capacity' },
+  contacts: [
+    { field: 'email', label: 'Email', required: true },
+    { field: 'first_name', label: 'First Name' },
+    { field: 'last_name', label: 'Last Name' },
+    { field: 'phone', label: 'Phone' },
+    { field: 'company', label: 'Company' },
+    { field: 'tags', label: 'Tags' },
   ],
 }
 
-export default function SmartCSVImporter({ importType, organizationId, onComplete }: ImporterProps) {
+export function SmartCSVImporter({ importType = 'members', onComplete }: ImporterProps) {
   const [step, setStep] = React.useState<'upload' | 'mapping' | 'preview' | 'importing' | 'complete'>('upload')
   const [file, setFile] = React.useState<File | null>(null)
   const [headers, setHeaders] = React.useState<string[]>([])
-  const [suggestedMappings, setSuggestedMappings] = React.useState<ColumnMapping>({})
-  const [mappings, setMappings] = React.useState<ColumnMapping>({})
-  const [preview, setPreview] = React.useState<PreviewRow[]>([])
-  const [jobId, setJobId] = React.useState<string | null>(null)
-  const [progress, setProgress] = React.useState({ current: 0, total: 0 })
-  const [result, setResult] = React.useState<{ success: number; errors: number; errorDetails: any[] } | null>(null)
+  const [rows, setRows] = React.useState<Record<string, string>[]>([])
+  const [mappings, setMappings] = React.useState<Record<string, string>>({})
+  const [importing, setImporting] = React.useState(false)
+  const [result, setResult] = React.useState<{ imported: number; errors: number } | null>(null)
   const [error, setError] = React.useState<string | null>(null)
 
-  const targetFields = TARGET_FIELDS[importType]
+  const fields = FIELD_DEFINITIONS[importType]
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const uploadedFile = e.target.files?.[0]
@@ -64,275 +78,302 @@ export default function SmartCSVImporter({ importType, organizationId, onComplet
     setFile(uploadedFile)
     setError(null)
 
-    const formData = new FormData()
-    formData.append('file', uploadedFile)
-    formData.append('organization_id', organizationId)
-    formData.append('import_type', importType)
-
     try {
-      const response = await fetch('/api/import', { method: 'POST', body: formData })
-      const data = await response.json()
+      const text = await uploadedFile.text()
+      const lines = text.split('\n').filter(line => line.trim())
+      
+      if (lines.length < 2) {
+        throw new Error('CSV must have at least a header row and one data row')
+      }
 
-      if (!response.ok) throw new Error(data.error)
+      const headerRow = parseCSVLine(lines[0])
+      setHeaders(headerRow)
 
-      setJobId(data.job_id)
-      setHeaders(data.headers)
-      setSuggestedMappings(data.suggested_mappings)
-      setMappings(data.suggested_mappings)
-      setPreview(data.preview)
-      setProgress({ current: 0, total: data.total_rows })
+      const dataRows = lines.slice(1, 101).map(line => {
+        const values = parseCSVLine(line)
+        const row: Record<string, string> = {}
+        headerRow.forEach((h, i) => {
+          row[h] = values[i] || ''
+        })
+        return row
+      })
+      setRows(dataRows)
+
+      // Auto-map columns based on name similarity
+      const autoMappings: Record<string, string> = {}
+      fields.forEach(({ field }) => {
+        const match = headerRow.find(h => 
+          h.toLowerCase().replace(/[_\s]/g, '') === field.toLowerCase().replace(/[_\s]/g, '') ||
+          h.toLowerCase().includes(field.toLowerCase())
+        )
+        if (match) {
+          autoMappings[field] = match
+        }
+      })
+      setMappings(autoMappings)
+
       setStep('mapping')
     } catch (err: any) {
-      setError(err.message || 'Failed to upload file')
+      setError(err.message)
     }
   }
 
   const handleImport = async () => {
-    if (!jobId) return
-
-    setStep('importing')
+    setImporting(true)
+    setError(null)
 
     try {
-      // Parse CSV locally for import
-      const text = await file!.text()
-      const lines = text.split('\n').filter(l => l.trim())
-      const dataRows = lines.slice(1).map(line => {
-        const values = line.split(',').map(v => v.trim().replace(/^"|"$/g, ''))
-        return Object.fromEntries(headers.map((h, i) => [h, values[i] || '']))
+      // Transform rows based on mappings
+      const transformedData = rows.map(row => {
+        const transformed: Record<string, any> = {}
+        Object.entries(mappings).forEach(([field, sourceColumn]) => {
+          if (sourceColumn && row[sourceColumn] !== undefined) {
+            transformed[field] = row[sourceColumn]
+          }
+        })
+        return transformed
       })
 
-      const response = await fetch('/api/import', {
-        method: 'PUT',
+      const res = await fetch('/api/import', {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          job_id: jobId,
-          column_mapping: mappings,
-          data: dataRows,
+          import_type: importType,
+          data: transformedData,
         }),
       })
 
-      const data = await response.json()
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || 'Import failed')
+      }
 
-      if (!response.ok) throw new Error(data.error)
-
-      setResult({
-        success: data.success_count,
-        errors: data.error_count,
-        errorDetails: data.errors || [],
-      })
+      const data = await res.json()
+      setResult({ imported: data.processed, errors: data.errors })
       setStep('complete')
-      onComplete?.({ success: data.success_count, errors: data.error_count })
+      onComplete?.({ imported: data.processed, errors: data.errors })
     } catch (err: any) {
-      setError(err.message || 'Import failed')
-      setStep('mapping')
+      setError(err.message)
+    } finally {
+      setImporting(false)
     }
   }
 
-  const getMappingConfidence = (header: string): 'high' | 'medium' | 'none' => {
-    const suggested = suggestedMappings[header]
-    if (!suggested) return 'none'
-    const normalized = header.toLowerCase()
-    if (normalized === suggested || normalized.includes(suggested)) return 'high'
-    return 'medium'
+  const reset = () => {
+    setStep('upload')
+    setFile(null)
+    setHeaders([])
+    setRows([])
+    setMappings({})
+    setResult(null)
+    setError(null)
   }
 
   return (
-    <div className="bg-white rounded-xl border p-6">
-      {/* Progress Steps */}
-      <div className="flex items-center gap-4 mb-8">
-        {['upload', 'mapping', 'preview', 'complete'].map((s, idx) => (
-          <React.Fragment key={s}>
-            <div className={`flex items-center gap-2 ${
-              step === s ? 'text-blue-600' : 
-              ['upload', 'mapping', 'preview', 'importing', 'complete'].indexOf(step) > idx ? 'text-green-600' : 'text-gray-400'
-            }`}>
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
-                step === s ? 'bg-blue-600 text-white' :
-                ['upload', 'mapping', 'preview', 'importing', 'complete'].indexOf(step) > idx ? 'bg-green-600 text-white' : 'bg-gray-200'
-              }`}>
-                {['upload', 'mapping', 'preview', 'importing', 'complete'].indexOf(step) > idx ? <Check className="w-4 h-4" /> : idx + 1}
-              </div>
-              <span className="text-sm font-medium capitalize">{s}</span>
-            </div>
-            {idx < 3 && <div className="flex-1 h-0.5 bg-gray-200" />}
-          </React.Fragment>
-        ))}
+    <div className="bg-white rounded-xl shadow-sm border">
+      {/* Progress steps */}
+      <div className="border-b px-6 py-4">
+        <div className="flex items-center gap-4">
+          {['Upload', 'Map Columns', 'Preview', 'Import'].map((label, i) => {
+            const stepIndex = ['upload', 'mapping', 'preview', 'importing'].indexOf(step)
+            const isActive = i === stepIndex
+            const isComplete = i < stepIndex || step === 'complete'
+
+            return (
+              <React.Fragment key={label}>
+                <div className="flex items-center gap-2">
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
+                    isComplete ? 'bg-green-100 text-green-600' :
+                    isActive ? 'bg-blue-100 text-blue-600' :
+                    'bg-gray-100 text-gray-400'
+                  }`}>
+                    {isComplete ? <Check className="w-4 h-4" /> : i + 1}
+                  </div>
+                  <span className={`text-sm ${isActive ? 'font-medium text-gray-900' : 'text-gray-500'}`}>
+                    {label}
+                  </span>
+                </div>
+                {i < 3 && <div className="flex-1 h-px bg-gray-200" />}
+              </React.Fragment>
+            )
+          })}
+        </div>
       </div>
 
-      {error && (
-        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-3 text-red-800">
-          <AlertCircle className="w-5 h-5" />
-          {error}
-        </div>
-      )}
+      <div className="p-6">
+        {/* Error display */}
+        {error && (
+          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-3 text-red-800">
+            <AlertCircle className="w-5 h-5 flex-shrink-0" />
+            <span>{error}</span>
+            <button onClick={() => setError(null)} className="ml-auto">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
 
-      {/* Step 1: Upload */}
-      {step === 'upload' && (
-        <div className="text-center py-12">
-          <FileSpreadsheet className="w-16 h-16 mx-auto text-gray-400 mb-4" />
-          <h3 className="text-xl font-semibold text-gray-900 mb-2">Upload CSV File</h3>
-          <p className="text-gray-500 mb-6">Import your {importType} from a CSV file</p>
-          <label className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg cursor-pointer hover:bg-blue-700">
-            <Upload className="w-5 h-5" />
-            Choose File
-            <input type="file" accept=".csv" onChange={handleFileUpload} className="hidden" />
-          </label>
-        </div>
-      )}
+        {/* Step: Upload */}
+        {step === 'upload' && (
+          <div className="text-center py-12">
+            <FileSpreadsheet className="w-16 h-16 mx-auto text-gray-300 mb-4" />
+            <h3 className="text-lg font-medium text-gray-900 mb-2">Upload your CSV file</h3>
+            <p className="text-gray-500 mb-6">
+              We'll help you map columns to the correct fields
+            </p>
+            <label className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg cursor-pointer hover:bg-blue-700">
+              <Upload className="w-5 h-5" />
+              <span>Choose File</span>
+              <input
+                type="file"
+                accept=".csv"
+                onChange={handleFileUpload}
+                className="hidden"
+              />
+            </label>
+          </div>
+        )}
 
-      {/* Step 2: Column Mapping */}
-      {step === 'mapping' && (
-        <div>
-          <h3 className="text-xl font-semibold text-gray-900 mb-2">Map Your Columns</h3>
-          <p className="text-gray-500 mb-6">We've detected {headers.length} columns. Please verify the mappings below.</p>
+        {/* Step: Mapping */}
+        {step === 'mapping' && (
+          <div>
+            <h3 className="text-lg font-medium text-gray-900 mb-4">Map Columns</h3>
+            <p className="text-gray-500 mb-6">
+              Match your CSV columns to the correct fields. We've auto-detected some mappings.
+            </p>
 
-          <div className="space-y-4 mb-6">
-            {headers.map(header => {
-              const confidence = getMappingConfidence(header)
-              return (
-                <div key={header} className="flex items-center gap-4 p-4 bg-gray-50 rounded-lg">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium text-gray-900">{header}</span>
-                      {confidence === 'high' && (
-                        <span className="px-2 py-0.5 bg-green-100 text-green-800 rounded text-xs">Auto-matched</span>
-                      )}
-                      {confidence === 'medium' && (
-                        <span className="px-2 py-0.5 bg-yellow-100 text-yellow-800 rounded text-xs">Suggested</span>
-                      )}
-                    </div>
-                    <div className="text-sm text-gray-500 mt-1">
-                      Sample: {preview[0]?.[header] || '(empty)'}
-                    </div>
-                  </div>
-                  <ArrowRight className="w-5 h-5 text-gray-400" />
+            <div className="space-y-4">
+              {fields.map(({ field, label, required }) => (
+                <div key={field} className="flex items-center gap-4">
+                  <label className="w-40 text-sm font-medium text-gray-700">
+                    {label}
+                    {required && <span className="text-red-500 ml-1">*</span>}
+                  </label>
                   <select
-                    value={mappings[header] || ''}
-                    onChange={(e) => setMappings({ ...mappings, [header]: e.target.value || null })}
-                    className="w-48 px-3 py-2 border rounded-lg"
+                    value={mappings[field] || ''}
+                    onChange={(e) => setMappings(prev => ({ ...prev, [field]: e.target.value }))}
+                    className="flex-1 px-3 py-2 border rounded-lg"
                   >
-                    <option value="">— Skip this column —</option>
-                    {targetFields.map(field => (
-                      <option key={field.label} value={field.label}>
-                        {field.label} {field.required && '*'}
-                      </option>
+                    <option value="">— Select column —</option>
+                    {headers.map(h => (
+                      <option key={h} value={h}>{h}</option>
                     ))}
                   </select>
+                  {mappings[field] && rows[0] && (
+                    <span className="text-sm text-gray-400 w-40 truncate">
+                      e.g. "{rows[0][mappings[field]]}"
+                    </span>
+                  )}
                 </div>
-              )
-            })}
+              ))}
+            </div>
+
+            <div className="flex justify-end gap-3 mt-8">
+              <button onClick={reset} className="px-4 py-2 text-gray-600 hover:text-gray-800">
+                Cancel
+              </button>
+              <button
+                onClick={() => setStep('preview')}
+                disabled={!fields.filter(f => f.required).every(f => mappings[f.field])}
+                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+              >
+                Continue
+              </button>
+            </div>
           </div>
+        )}
 
-          <div className="flex justify-between">
-            <button onClick={() => setStep('upload')} className="px-6 py-3 border rounded-lg text-gray-600 hover:bg-gray-50">
-              Back
-            </button>
-            <button onClick={() => setStep('preview')} className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
-              Preview Import
-            </button>
-          </div>
-        </div>
-      )}
+        {/* Step: Preview */}
+        {step === 'preview' && (
+          <div>
+            <h3 className="text-lg font-medium text-gray-900 mb-4">Preview Import</h3>
+            <p className="text-gray-500 mb-6">
+              Review the first few rows before importing. {rows.length} total rows will be imported.
+            </p>
 
-      {/* Step 3: Preview */}
-      {step === 'preview' && (
-        <div>
-          <h3 className="text-xl font-semibold text-gray-900 mb-2">Preview Import</h3>
-          <p className="text-gray-500 mb-6">Review the first 5 rows before importing {progress.total} records.</p>
-
-          <div className="overflow-x-auto mb-6">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-100">
-                <tr>
-                  {Object.entries(mappings).filter(([_, v]) => v).map(([header, target]) => (
-                    <th key={header} className="px-4 py-2 text-left font-medium text-gray-900">
-                      {target}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {preview.map((row, idx) => (
-                  <tr key={idx}>
-                    {Object.entries(mappings).filter(([_, v]) => v).map(([header]) => (
-                      <td key={header} className="px-4 py-2 text-gray-600">
-                        {row[header] || '—'}
-                      </td>
+            <div className="overflow-x-auto border rounded-lg">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    {fields.filter(f => mappings[f.field]).map(({ field, label }) => (
+                      <th key={field} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                        {label}
+                      </th>
                     ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="flex justify-between">
-            <button onClick={() => setStep('mapping')} className="px-6 py-3 border rounded-lg text-gray-600 hover:bg-gray-50">
-              Back
-            </button>
-            <button onClick={handleImport} className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700">
-              Import {progress.total} Records
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Step 4: Importing */}
-      {step === 'importing' && (
-        <div className="text-center py-12">
-          <Loader2 className="w-16 h-16 mx-auto text-blue-600 animate-spin mb-4" />
-          <h3 className="text-xl font-semibold text-gray-900 mb-2">Importing...</h3>
-          <p className="text-gray-500">Please wait while we import your data.</p>
-        </div>
-      )}
-
-      {/* Step 5: Complete */}
-      {step === 'complete' && result && (
-        <div className="text-center py-12">
-          <div className={`w-16 h-16 mx-auto rounded-full flex items-center justify-center mb-4 ${
-            result.errors === 0 ? 'bg-green-100' : 'bg-yellow-100'
-          }`}>
-            {result.errors === 0 ? (
-              <Check className="w-8 h-8 text-green-600" />
-            ) : (
-              <AlertCircle className="w-8 h-8 text-yellow-600" />
-            )}
-          </div>
-          <h3 className="text-xl font-semibold text-gray-900 mb-2">Import Complete</h3>
-          <p className="text-gray-500 mb-4">
-            Successfully imported <span className="font-semibold text-green-600">{result.success}</span> records.
-            {result.errors > 0 && (
-              <> <span className="font-semibold text-red-600">{result.errors}</span> errors.</>
-            )}
-          </p>
-
-          {result.errorDetails.length > 0 && (
-            <div className="text-left max-w-md mx-auto mb-6">
-              <h4 className="font-medium text-gray-900 mb-2">Errors:</h4>
-              <div className="bg-red-50 rounded-lg p-4 max-h-40 overflow-y-auto text-sm">
-                {result.errorDetails.slice(0, 10).map((err, idx) => (
-                  <div key={idx} className="text-red-800">
-                    Row {err.row}: {err.error}
-                  </div>
-                ))}
-              </div>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {rows.slice(0, 5).map((row, i) => (
+                    <tr key={i}>
+                      {fields.filter(f => mappings[f.field]).map(({ field }) => (
+                        <td key={field} className="px-4 py-3 text-sm text-gray-900">
+                          {row[mappings[field]] || '—'}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          )}
 
-          <button
-            onClick={() => {
-              setStep('upload')
-              setFile(null)
-              setHeaders([])
-              setMappings({})
-              setPreview([])
-              setResult(null)
-            }}
-            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-          >
-            Import Another File
-          </button>
-        </div>
-      )}
+            <div className="flex justify-end gap-3 mt-8">
+              <button onClick={() => setStep('mapping')} className="px-4 py-2 text-gray-600 hover:text-gray-800">
+                Back
+              </button>
+              <button
+                onClick={handleImport}
+                disabled={importing}
+                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+              >
+                {importing && <Loader2 className="w-4 h-4 animate-spin" />}
+                Import {rows.length} Rows
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Step: Complete */}
+        {step === 'complete' && result && (
+          <div className="text-center py-12">
+            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Check className="w-8 h-8 text-green-600" />
+            </div>
+            <h3 className="text-lg font-medium text-gray-900 mb-2">Import Complete!</h3>
+            <p className="text-gray-500 mb-6">
+              Successfully imported {result.imported} records
+              {result.errors > 0 && ` (${result.errors} errors)`}
+            </p>
+            <button
+              onClick={reset}
+              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            >
+              Import Another File
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   )
+}
+
+// Simple CSV line parser (handles quoted values)
+function parseCSVLine(line: string): string[] {
+  const result: string[] = []
+  let current = ''
+  let inQuotes = false
+
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i]
+    
+    if (char === '"') {
+      inQuotes = !inQuotes
+    } else if (char === ',' && !inQuotes) {
+      result.push(current.trim())
+      current = ''
+    } else {
+      current += char
+    }
+  }
+  
+  result.push(current.trim())
+  return result
 }

@@ -29,8 +29,6 @@ type WorkItem = {
   created_at: string
 }
 
-const ORG_ID = process.env.NEXT_PUBLIC_DEFAULT_ORG_ID || ''
-
 const tabs = [
   { id: 'today', label: 'Today', icon: Clock },
   { id: 'overdue', label: 'Overdue', icon: AlertCircle },
@@ -61,7 +59,8 @@ export default function InboxPage() {
   const { data, isLoading, error } = useQuery({
     queryKey: ['work-items', tab],
     queryFn: async () => {
-      const res = await fetch(`/api/work-items?orgId=${encodeURIComponent(ORG_ID)}&tab=${tab}`)
+      // No orgId param - derived from session via middleware
+      const res = await fetch(`/api/work-items?tab=${tab}`)
       if (!res.ok) throw new Error('Failed to fetch work items')
       return (await res.json()) as { items: WorkItem[] }
     },

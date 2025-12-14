@@ -1,52 +1,73 @@
 import { NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase/admin'
+import { z } from 'zod'
+import { requireContext, handleAuthError } from '@/lib/auth/context'
 
-export async function PATCH(
-  req: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const { id } = await params
-  const body = await req.json()
-  const supabase = createAdminClient()
+const PatchSchema = z.object({
+  status: z.string().optional(),
+  snoozed_until: z.string().datetime().nullable().optional(),
+  assignee_profile_id: z.string().uuid().nullable().optional(),
+  priority: z.string().optional(),
+})
 
-  const patch: Record<string, unknown> = {
-    updated_at: new Date().toISOString(),
+export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const ctx = await requireContext(req)
+    const { id } = await params
+
+    const { data, error } = await ctx.supabase
+      .from('work_items')
+      .select('*')
+      .eq('id', id)
+      .eq('organization_id', ctx.organizationId)
+      .single()
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    if (!data) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    return NextResponse.json({ item: data })
+  } catch (err) {
+    return handleAuthError(err)
   }
-
-  if (body.status !== undefined) patch.status = body.status
-  if (body.snoozed_until !== undefined) patch.snoozed_until = body.snoozed_until
-  if (body.assignee_profile_id !== undefined) patch.assignee_profile_id = body.assignee_profile_id
-  if (body.priority !== undefined) patch.priority = body.priority
-
-  const { data, error } = await supabase
-    .from('work_items')
-    .update(patch)
-    .eq('id', id)
-    .select('*')
-    .single()
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
-
-  return NextResponse.json({ item: data })
 }
 
-export async function DELETE(
-  req: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const { id } = await params
-  const supabase = createAdminClient()
+export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const ctx = await requireContext(req)
+    const { id } = await params
 
-  const { error } = await supabase
-    .from('work_items')
-    .delete()
-    .eq('id', id)
+    const parsed = PatchSchema.safeParse(await req.json().catch(() => null))
+    if (!parsed.success) {
+      return NextResponse.json({ error: 'Invalid body' }, { status: 400 })
+    }
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    const { data, error } = await ctx.supabase
+      .from('work_items')
+      .update({ ...parsed.data, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .eq('organization_id', ctx.organizationId) // critical scoping
+      .select('*')
+      .single()
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ item: data })
+  } catch (err) {
+    return handleAuthError(err)
   }
+}
 
-  return NextResponse.json({ ok: true })
+export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const ctx = await requireContext(req)
+    const { id } = await params
+
+    const { error } = await ctx.supabase
+      .from('work_items')
+      .delete()
+      .eq('id', id)
+      .eq('organization_id', ctx.organizationId)
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ ok: true })
+  } catch (err) {
+    return handleAuthError(err)
+  }
 }
