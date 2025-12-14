@@ -32,8 +32,9 @@ export default function ImportPage() {
     },
   ]
 
-  const handleComplete = (result: { success: number; errors: number }) => {
+  const handleComplete = (result: { imported: number; errors: number }) => {
     console.log('Import complete:', result)
+    setShowImporter(false)
   }
 
   return (
@@ -121,7 +122,6 @@ export default function ImportPage() {
           </button>
           <SmartCSVImporter
             importType={selectedType!}
-            organizationId="demo-org-id" // Replace with actual org ID
             onComplete={handleComplete}
           />
         </div>

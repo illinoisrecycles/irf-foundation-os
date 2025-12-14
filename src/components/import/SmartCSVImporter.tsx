@@ -8,7 +8,7 @@ import { Upload, FileSpreadsheet, Check, AlertCircle, Loader2, X } from 'lucide-
 // AI-assisted CSV import with column mapping
 // ============================================================================
 
-type ImportType = 'members' | 'transactions' | 'donations' | 'contacts'
+type ImportType = 'members' | 'transactions' | 'donations' | 'contacts' | 'events'
 
 type ColumnMapping = {
   sourceColumn: string
@@ -56,6 +56,15 @@ const FIELD_DEFINITIONS: Record<ImportType, { field: string; label: string; requ
     { field: 'phone', label: 'Phone' },
     { field: 'company', label: 'Company' },
     { field: 'tags', label: 'Tags' },
+  ],
+  events: [
+    { field: 'title', label: 'Title', required: true },
+    { field: 'start_date', label: 'Start Date', required: true },
+    { field: 'end_date', label: 'End Date' },
+    { field: 'location', label: 'Location' },
+    { field: 'description', label: 'Description' },
+    { field: 'capacity', label: 'Capacity' },
+    { field: 'price_cents', label: 'Price' },
   ],
 }
 
