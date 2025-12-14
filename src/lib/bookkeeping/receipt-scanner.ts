@@ -1,7 +1,14 @@
 import OpenAI from 'openai'
 import { createAdminClient } from '@/lib/supabase/admin'
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+// Lazy-loaded OpenAI client
+let openaiClient: OpenAI | null = null
+function getOpenAI(): OpenAI {
+  if (!openaiClient) {
+    openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' })
+  }
+  return openaiClient
+}
 
 // ============================================================================
 // AI RECEIPT/INVOICE SCANNER
@@ -50,7 +57,7 @@ export async function scanReceipt(
     .eq('id', scanId)
 
   try {
-    const response = await openai.chat.completions.create({
+    const response = await getOpenAI().chat.completions.create({
       model: 'gpt-4o',
       messages: [
         {
