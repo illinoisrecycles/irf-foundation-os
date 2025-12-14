@@ -8,7 +8,8 @@ import {
   LayoutDashboard, Users, Calendar, Mail, FileText, DollarSign,
   Settings, Building2, Globe, Briefcase, Heart, CreditCard,
   Award, BarChart3, MessageSquare, Inbox, ChevronLeft, ChevronRight,
-  Search, Bell, User, Menu, Recycle, Zap, Link2, Upload, BookOpen
+  Search, Bell, User, Menu, Recycle, Zap, Link2, Upload, BookOpen,
+  CheckSquare, MapPin, Vote
 } from 'lucide-react'
 
 type NavItem = 
@@ -18,6 +19,7 @@ type NavItem =
 const navigation: NavItem[] = [
   { name: 'Dashboard', href: '/admin', icon: LayoutDashboard },
   { name: 'Members', href: '/admin/members', icon: Users },
+  { name: 'Chapters', href: '/admin/chapters', icon: MapPin },
   { name: 'Directory', href: '/admin/directory', icon: Building2 },
   { name: 'Events', href: '/admin/events', icon: Calendar },
   { name: 'Email', href: '/admin/email', icon: Mail },
@@ -25,14 +27,17 @@ const navigation: NavItem[] = [
   { name: 'Resources', href: '/admin/resources', icon: FileText },
   { name: 'Website', href: '/admin/website', icon: Globe },
   { name: 'Jobs', href: '/admin/jobs', icon: Briefcase },
+  { type: 'divider', name: 'Finance' },
   { name: 'Donations', href: '/admin/donations', icon: Heart },
   { name: 'Finances', href: '/admin/finances', icon: DollarSign },
   { name: 'Payments', href: '/admin/payments', icon: CreditCard },
   { name: 'Grants', href: '/admin/grants', icon: Award },
   { name: 'Reports', href: '/admin/reports', icon: BarChart3 },
-  { name: 'Social', href: '/admin/social', icon: MessageSquare },
+  { type: 'divider', name: 'Governance' },
+  { name: 'Approvals', href: '/admin/approvals', icon: CheckSquare },
+  { name: 'Board', href: '/admin/board', icon: Vote },
   { name: 'Inbox', href: '/admin/inbox', icon: Inbox },
-  { type: 'divider', name: 'Automation' },
+  { type: 'divider', name: 'System' },
   { name: 'Automation', href: '/admin/automation', icon: Zap },
   { name: 'Integrations', href: '/admin/integrations', icon: Link2 },
   { name: 'Import', href: '/admin/import', icon: Upload },

@@ -3,6 +3,14 @@
     {
       "path": "/api/cron/daily-work-items",
       "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/cron/run-automations",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/process-automation",
+      "schedule": "*/5 * * * *"
     }
   ]
 }
