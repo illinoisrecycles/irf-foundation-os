@@ -3,6 +3,7 @@
 import { ReactNode, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import type { LucideIcon } from 'lucide-react'
 import {
   LayoutDashboard, Users, Calendar, Mail, FileText, DollarSign,
   Settings, Building2, Globe, Briefcase, Heart, CreditCard,
@@ -10,7 +11,11 @@ import {
   Search, Bell, User, Menu, Recycle, Zap, Link2, Upload, BookOpen
 } from 'lucide-react'
 
-const navigation = [
+type NavItem = 
+  | { type: 'divider'; name: string; href?: never; icon?: never }
+  | { type?: never; name: string; href: string; icon: LucideIcon }
+
+const navigation: NavItem[] = [
   { name: 'Dashboard', href: '/admin', icon: LayoutDashboard },
   { name: 'Members', href: '/admin/members', icon: Users },
   { name: 'Directory', href: '/admin/directory', icon: Building2 },
@@ -64,18 +69,23 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
                 </li>
               ) : (
                 <li key={item.name}>
-                  <Link
-                    href={item.href!}
-                    className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
-                      pathname === item.href
-                        ? 'bg-green-50 text-green-700 font-medium'
-                        : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                    }`}
-                    title={collapsed ? item.name : undefined}
-                  >
-                    <item.icon className="w-5 h-5 flex-shrink-0" />
-                    {!collapsed && item.name}
-                  </Link>
+                  {(() => {
+                    const Icon = item.icon
+                    return (
+                      <Link
+                        href={item.href}
+                        className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
+                          pathname === item.href
+                            ? 'bg-green-50 text-green-700 font-medium'
+                            : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                        }`}
+                        title={collapsed ? item.name : undefined}
+                      >
+                        <Icon className="w-5 h-5 flex-shrink-0" />
+                        {!collapsed && item.name}
+                      </Link>
+                    )
+                  })()}
                 </li>
               )
             )}

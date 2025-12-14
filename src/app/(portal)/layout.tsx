@@ -3,12 +3,15 @@
 import { ReactNode, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import type { LucideIcon } from 'lucide-react'
 import {
   Building2, User, Calendar, FileText, CreditCard, Settings,
   MessageSquare, Download, BarChart2, Bell, LogOut, Menu, X, ChevronDown
 } from 'lucide-react'
 
-const navItems = [
+type NavItem = { href: string; label: string; icon: LucideIcon }
+
+const navItems: NavItem[] = [
   { href: '/portal', label: 'Dashboard', icon: BarChart2 },
   { href: '/portal/profile', label: 'Organization Profile', icon: Building2 },
   { href: '/portal/contacts', label: 'Contacts', icon: User },
@@ -84,6 +87,7 @@ export default function PortalLayout({ children }: { children: ReactNode }) {
                 {navItems.map((item) => {
                   const isActive = pathname === item.href || 
                     (item.href !== '/portal' && pathname.startsWith(item.href))
+                  const Icon = item.icon
                   return (
                     <li key={item.href}>
                       <Link
@@ -94,7 +98,7 @@ export default function PortalLayout({ children }: { children: ReactNode }) {
                             : 'text-gray-600 hover:bg-gray-50'
                         }`}
                       >
-                        <item.icon className="w-5 h-5" />
+                        <Icon className="w-5 h-5" />
                         {item.label}
                       </Link>
                     </li>
