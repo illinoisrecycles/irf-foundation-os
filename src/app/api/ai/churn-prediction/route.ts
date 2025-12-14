@@ -2,6 +2,17 @@ import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { predictChurnRisk } from '@/lib/ai'
 
+type MemberData = {
+  id: string
+  name: string
+  membership_status: string
+  joined_at: string
+}
+
+type ActivityData = {
+  activity_date: string
+}
+
 export async function GET(req: Request) {
   const supabase = createAdminClient()
   const { searchParams } = new URL(req.url)
@@ -16,7 +27,7 @@ export async function GET(req: Request) {
       .from('member_organizations')
       .select('id, name, membership_status, joined_at')
       .eq('id', memberId)
-      .single()
+      .single() as { data: MemberData | null }
 
     if (!member) {
       return NextResponse.json({ error: 'Member not found' }, { status: 404 })
@@ -26,7 +37,7 @@ export async function GET(req: Request) {
       .from('member_engagement_scores')
       .select('score')
       .eq('member_organization_id', memberId)
-      .single()
+      .single() as { data: { score: number } | null }
 
     const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString()
     
@@ -34,18 +45,18 @@ export async function GET(req: Request) {
       .from('member_activities')
       .select('id')
       .eq('member_organization_id', memberId)
-      .gte('activity_date', ninetyDaysAgo)
+      .gte('activity_date', ninetyDaysAgo) as { data: { id: string }[] | null }
 
     const { data: events } = await supabase
       .from('event_registrations')
       .select('id')
       .eq('member_organization_id', memberId)
-      .eq('attended', true)
+      .eq('attended', true) as { data: { id: string }[] | null }
 
     const { data: donations } = await supabase
       .from('donations')
       .select('amount_cents')
-      .eq('donor_member_id', memberId)
+      .eq('donor_member_id', memberId) as { data: { amount_cents: number }[] | null }
 
     const { data: lastActivity } = await supabase
       .from('member_activities')
@@ -53,7 +64,7 @@ export async function GET(req: Request) {
       .eq('member_organization_id', memberId)
       .order('activity_date', { ascending: false })
       .limit(1)
-      .single()
+      .single() as { data: ActivityData | null }
 
     const prediction = await predictChurnRisk({
       memberName: member.name,
