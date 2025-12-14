@@ -2,7 +2,14 @@ import OpenAI from 'openai'
 import { SupabaseClient } from '@supabase/supabase-js'
 import { Database } from '@/types/database'
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+// Lazy-loaded OpenAI client (avoids build-time errors)
+let openaiClient: OpenAI | null = null
+function getOpenAI(): OpenAI {
+  if (!openaiClient) {
+    openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' })
+  }
+  return openaiClient
+}
 
 // ============================================================================
 // AI TRANSACTION CATEGORIZER (STRUCTURED OUTPUTS)
@@ -91,7 +98,7 @@ Default Cash Account: ${input.defaultCashAccountCode}
 
 Classify this transaction.`
 
-  const response = await openai.chat.completions.create({
+  const response = await getOpenAI().chat.completions.create({
     model,
     messages: [
       { role: 'system', content: systemPrompt },
