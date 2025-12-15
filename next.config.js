@@ -2,12 +2,27 @@
 const nextConfig = {
   reactStrictMode: true,
   
-  // Ignore type errors until Supabase types are generated
+  /**
+   * ⚠️  WARNING: TypeScript errors are currently ignored during builds.
+   * 
+   * This should be set to false in production to catch bugs early.
+   * Run `npm run build` locally with ignoreBuildErrors: false to see all issues.
+   * 
+   * TODO: Fix all TypeScript errors and remove this flag before production launch.
+   */
   typescript: {
-    ignoreBuildErrors: true,
+    ignoreBuildErrors: process.env.NODE_ENV !== 'production' || process.env.SKIP_TYPE_CHECK === 'true',
   },
+  
+  /**
+   * ⚠️  WARNING: ESLint errors are currently ignored during builds.
+   * 
+   * Run `npm run lint` locally to see all linting issues.
+   * 
+   * TODO: Fix all ESLint errors and remove this flag before production launch.
+   */
   eslint: {
-    ignoreDuringBuilds: true,
+    ignoreDuringBuilds: process.env.NODE_ENV !== 'production' || process.env.SKIP_LINT === 'true',
   },
   
   // Allow external images

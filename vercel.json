@@ -1,12 +1,68 @@
 {
   "crons": [
     {
-      "path": "/api/cron/daily-work-items",
-      "schedule": "0 8 * * *"
+      "path": "/api/cron/process-automation",
+      "schedule": "*/5 * * * *",
+      "comment": "Process automation queue every 5 minutes"
     },
     {
-      "path": "/api/cron/run-automations",
-      "schedule": "0 6 * * *"
+      "path": "/api/cron/process-emails",
+      "schedule": "*/5 * * * *",
+      "comment": "Process email outbox every 5 minutes"
+    },
+    {
+      "path": "/api/cron/daily-briefing",
+      "schedule": "0 13 * * 1-5",
+      "comment": "Daily briefing 8 AM CT (13:00 UTC) weekdays"
+    },
+    {
+      "path": "/api/cron/daily-work-items",
+      "schedule": "0 12 * * *",
+      "comment": "Generate daily work items 7 AM CT"
+    },
+    {
+      "path": "/api/cron/health-scores",
+      "schedule": "0 11 * * 1",
+      "comment": "Calculate member health scores 6 AM CT Mondays"
+    },
+    {
+      "path": "/api/cron/smart-matcher",
+      "schedule": "0 7 * * *",
+      "comment": "Run ask/offer matching 2 AM CT daily"
+    },
+    {
+      "path": "/api/cron/social-spotlight",
+      "schedule": "0 14 1 * *",
+      "comment": "Generate member spotlight 9 AM CT 1st of month"
+    },
+    {
+      "path": "/api/grants/auto-discover/cron",
+      "schedule": "0 11 * * *",
+      "comment": "Discover federal grants 6 AM CT daily"
+    },
+    {
+      "path": "/api/analytics/churn",
+      "schedule": "0 7 * * 0",
+      "comment": "Run churn prediction 2 AM CT Sundays"
+    },
+    {
+      "path": "/api/insights/generate",
+      "schedule": "0 12 * * *",
+      "comment": "Generate AI insights 7 AM CT daily"
     }
-  ]
+  ],
+  "functions": {
+    "api/migrate/process/route.ts": {
+      "maxDuration": 300
+    },
+    "api/migrate/import/route.ts": {
+      "maxDuration": 300
+    },
+    "api/migrate/post-optimize/route.ts": {
+      "maxDuration": 120
+    },
+    "api/cron/health-scores/route.ts": {
+      "maxDuration": 300
+    }
+  }
 }

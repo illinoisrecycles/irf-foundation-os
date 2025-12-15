@@ -1,10 +1,11 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { createClient } from '@/lib/supabase/client'
 import { 
   CheckCircle, XCircle, Clock, AlertTriangle, 
   DollarSign, FileText, Users, Briefcase,
-  ChevronRight, Filter, Search, Eye
+  ChevronRight, Filter, Search, Eye, Loader2
 } from 'lucide-react'
 
 type ApprovalRequest = {
@@ -61,15 +62,28 @@ export default function ApprovalsPage() {
   const [selectedApproval, setSelectedApproval] = useState<ApprovalRequest | null>(null)
   const [actionNote, setActionNote] = useState('')
   const [processing, setProcessing] = useState(false)
+  const [currentUser, setCurrentUser] = useState<{ id: string } | null>(null)
+  
+  const supabase = createClient()
 
   useEffect(() => {
-    fetchApprovals()
-  }, [filter, typeFilter])
+    // Get current user
+    supabase.auth.getUser().then(({ data }) => {
+      if (data.user) {
+        setCurrentUser({ id: data.user.id })
+      }
+    })
+  }, [])
+
+  useEffect(() => {
+    if (currentUser) {
+      fetchApprovals()
+    }
+  }, [filter, typeFilter, currentUser])
 
   const fetchApprovals = async () => {
     setLoading(true)
     const params = new URLSearchParams({
-      organization_id: 'ORG_ID', // Would come from context
       status: filter === 'all' ? 'all' : 'pending',
     })
     if (typeFilter) params.set('type', typeFilter)
@@ -82,7 +96,7 @@ export default function ApprovalsPage() {
   }
 
   const handleAction = async (action: 'approve' | 'reject') => {
-    if (!selectedApproval) return
+    if (!selectedApproval || !currentUser) return
     setProcessing(true)
 
     await fetch(`/api/approvals/${selectedApproval.id}`, {
@@ -90,7 +104,6 @@ export default function ApprovalsPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         action,
-        profile_id: 'CURRENT_USER_ID', // Would come from auth context
         note: actionNote,
       }),
     })
@@ -105,6 +118,14 @@ export default function ApprovalsPage() {
   const totalAmount = approvals
     .filter(a => a.status === 'pending' && a.amount_cents)
     .reduce((sum, a) => sum + (a.amount_cents || 0), 0)
+
+  if (loading && approvals.length === 0) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
